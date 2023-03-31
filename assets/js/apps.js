@@ -16,6 +16,9 @@ function apps_ajax_inspector_staffs_search(selector) {
 
 
 function apps_ajax_search(type, selector, server_data, url) {
+  console.log(type);
+  console.log(selector);
+
   var ajaxSelector = $("body").find(selector);
 
   if (ajaxSelector.length) {
@@ -71,4 +74,39 @@ function apps_ajax_search(type, selector, server_data, url) {
     }
     ajaxSelector.selectpicker().ajaxSelectPicker(options);
   }
+}
+
+
+// Ajax project search but only for specific customer
+function apps_ajax_project_search_by_customer_id(selector) {
+  selector =
+    typeof selector == "undefined" ? "#project_id.ajax-search" : selector;
+    apps_ajax_search("project", selector, {
+    customer_id: function () {
+      return $("#clientid").val();
+    },
+  });
+}
+
+
+// Ajax project search but only for specific customer
+function apps_ajax_inspector_id_search_by_institution_id(selector) {
+  selector =
+    typeof selector == "undefined" ? "#inspector_id.ajax-search" : selector;
+    apps_ajax_search("inspector", selector, {
+    institution_id: function () {
+      return $("#institution_id").val();
+    },
+  });
+}
+
+// Ajax project search but only for specific customer
+function apps_ajax_inspector_staff_id_search_by_inspector_id(selector) {
+  selector =
+    typeof selector == "undefined" ? "#inspector_staff_id.ajax-search" : selector;
+    apps_ajax_search("inspector_staff", selector, {
+    inspector_id: function () {
+      return $("#inspector_id").val();
+    },
+  });
 }

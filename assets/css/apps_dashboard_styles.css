@@ -1,0 +1,142 @@
+.appsdashboard-pagination-wrapper {
+  text-align: center;
+}
+
+.appsdashboard-button-wrap {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.appsdashboard-widget-info-wrap {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.appsdashboard-widget-info-wrap .widget-name {
+  font-size: 19px;
+  font-weight: 500;
+  text-transform: uppercase;
+  margin-right: 20px;
+}
+.appsdashboard-widget-info-wrap .widget-category {
+  text-transform: uppercase;
+}
+.appsdashboard-widget-info-wrap .widget-note {
+  width: 100%;
+}
+
+.appsdashboard-actions-wrap {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+}
+.appsdashboard-actions-wrap-between {
+  justify-content: space-between;
+}
+
+.appsdashboard-actions-wrap .appsdashboard-categories-select {
+  width: 250px;
+}
+
+.appsdashboard-categories-select {
+  max-width: 250px;
+  display: inline-block;
+}
+
+.appsdashboard-period-select {
+  width: 250px;
+  display: inline-block;
+}
+
+.appsdashboard-width-select {
+  width: 250px;
+}
+
+.appsdashboard-date-range .input-group.date {
+  margin-top: 5px;
+}
+
+.widget {
+  position: relative;
+}
+
+.appsdashboard-widget-removable:before {
+  content: "\f00d";
+  font: normal normal normal 14px/1 FontAwesome;
+}
+
+.appsdashboard-widget-removable {
+  position: absolute;
+  top: 45px;
+  left: -15px;
+  color: #a9afbb;
+  cursor: move;
+  z-index: 2;
+}
+
+.appsdashboard-widget-removable:hover,
+.appsdashboard-widget-removable:active {
+  color: #969aa2;
+}
+.appsdashboard-widget-removable:hover {
+  cursor: pointer;
+}
+
+.mobile .appsdashboard-widget-removable {
+  display: none;
+}
+
+.appsdashboard-widget-changeable:before {
+  content: "\f040";
+  font: normal normal normal 14px/1 FontAwesome;
+}
+
+.appsdashboard-widget-changeable {
+  position: absolute;
+  top: 5px;
+  left: -15px;
+  color: #a9afbb;
+  cursor: move;
+  z-index: 2;
+}
+.widget-dragger {
+  top: 25px;
+}
+.appsdashboard-widget-changeable:hover,
+.appsdashboard-widget-changeable:active {
+  color: #969aa2;
+}
+.appsdashboard-widget-changeable:hover {
+  cursor: pointer;
+}
+
+.mobile .appsdashboard-widget-changeable {
+  display: none;
+}
+
+.appsdashboard-search-input {
+  width: 250px;
+}
+
+.appsdashboard-actions-section-right {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+}
+.appsdashboard-actions-section-right > * {
+  margin-right: 15px;
+}
+
+.appsdashboard-table thead th {
+  background-color: #ebf5ff;
+}
+
+.appsdashboard-btn {
+  margin-right: 5px;
+  margin-bottom: 5px;
+}
+.apps-dashboard-widget-list .widget-dragger {
+  display: none;
+}

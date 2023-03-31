@@ -1,5 +1,262 @@
 <?php
+
 defined('BASEPATH') or exit('No direct script access allowed');
+
+function apps_get_token(){
+    $_SESSION['token_key'] = bin2hex(random_bytes(32));
+    $_SESSION['token_value'] = bin2hex(random_bytes(64));
+    $_SESSION['csrf_token_key'] = hash_hmac('sha256', $_SESSION['token_key'], $_SESSION['token_value']);
+    return $_SESSION['csrf_token_key'];
+}
+
+function apps_render_dashboard_widgets($container)
+{
+    $widgetsHtml = [];
+
+    static $widgets     = null;
+    static $widgetsData = null;
+
+    include_once(APPPATH . 'third_party/simple_html_dom.php');
+
+    $CI = &get_instance();
+
+    if (!$widgets) {
+        $widgetsData       = [];
+        $widgets           = get_dashboard_widgets();
+
+        foreach ($widgets as $key => $widget) {
+            $html = str_get_html($CI->load->view($widget['path'], [], true));
+            if ($html) {
+                $widgetContainer = $html->firstChild();
+                if ($widgetContainer) {
+                    $htmlID = $widgetContainer->getAttribute('id');
+
+                    $widgetsData[$htmlID] = [
+                        'widgetIndex'     => $key,
+                        'widgetPath'      => $widget['path'],
+                        'widgetContainer' => $widget['container'],
+                        'html'            => $widgetContainer,
+                    ];
+
+                    $widget['widgetID']         = $htmlID;
+                    $widget['html']             = $widgetContainer;
+                    $widgets[$key]['settingID'] = strafter($htmlID, 'widget-');
+                    $widgets[$key]['html']      = $widgetContainer;
+                } else {
+                    // Not compatible widget
+                    unset($widgets[$key]);
+                }
+            } else {
+                // Not compatible widget
+                unset($widgets[$key]);
+            }
+        }
+    }
+    foreach ($widgets as $widget) {
+        if ($widget['container'] == $container) {
+            $widgetsHtml[$widget['settingID']] = $widget['html'];
+        }
+    }
+    foreach ($widgetsHtml as $widgetID => $widgetHTML) {
+        echo $widgetHTML;
+    }
+}
+
+function apps_render_widgets($widgets)
+{
+    $CI = &get_instance();
+
+    foreach ($widgets as $widget) {
+        echo '<div class="col-md-12">';
+        echo $CI->load->view('apps/partials/widget_info', ['widget' => $widget], true);
+        echo $CI->load->view('apps/widgets/' . $widget['widget_name'], [], true);
+        echo '</div>';
+    }
+}
+
+function apps_render_widgets_from_dashboard($dashboard, $container)
+{
+    $CI = &get_instance();
+    $CI->load->model('apps_model');
+
+    $ids = [];
+    if(isset($dashboard['dashboard_widgets'][$container])) {
+        $ids = $dashboard['dashboard_widgets'][$container];
+    }
+
+    $widgets = $CI->apps_model->select_widgets_by_ids($ids);
+
+    foreach ($widgets as $widget) {
+        echo $CI->load->view('apps/widgets/' . $widget['widget_name'], [
+            'widget' => $widget,
+        ], true);
+    }
+}
+
+function apps_get_available_widgets($dashboard)
+{
+    $CI = &get_instance();
+    $CI->load->model('apps_model');
+
+    $containers = ['top-12', 'top-left-first-4', 'top-left-last-4', 'top-right-first-4', 'top-right-last-4', 'middle-left-6', 'middle-right-6', 'left-8', 'right-4', 'bottom-left-4', 'bottom-middle-4', 'bottom-right-4'];
+    
+    $present_widgets = [];
+    foreach($containers as $container) {
+        if(isset($dashboard['dashboard_widgets'][$container])) {
+            $present_widgets = array_merge($present_widgets, $dashboard['dashboard_widgets'][$container]);
+        }
+    }
+    $present_widgets= array_unique($present_widgets);
+
+    $widgets = $CI->apps_model->select_widgets_except_ids($present_widgets);
+
+    return $widgets;
+}
+
+function apps_get_categories() 
+{
+    $CI = &get_instance();
+    $CI->load->model('apps_model');
+
+    $categories = $CI->apps_model->get_categories();
+
+    return $categories;
+}
+
+function apps_scan_widgets_2()
+{
+    $widget_path = dirname(__FILE__) . DIRECTORY_SEPARATOR . '../views/widgets';
+    $widgets = directory_map($widget_path, 1);
+
+    // only files that start with prefix widget-
+    $widgets = array_filter($widgets, function ($v) {
+      if(strlen($v) > 7) {
+        return substr($v, 0, 7) === 'widget-';
+      }
+      return false;
+    });
+
+    // generate data
+    $widgets_data = [];
+    if ($widgets) {
+
+        foreach ($widgets as $widget_name) {
+            $widget_name = strtolower(trim($widget_name));
+            
+            foreach (['\\', '/'] as $trim) {
+                $widget_name = rtrim($widget_name, $trim);
+            }
+
+            $name = substr($widget_name, 7);
+            $name = substr($name, 0, stripos($name, '.') - 0);
+
+            $path = $widget_path . DIRECTORY_SEPARATOR . $widget_name;
+
+            $header = apps_get_headers_widget($path);
+
+            array_push($widgets_data, [
+                'name' =>  $name,
+                'file_name' => $widget_name,
+                'path' => $path,
+                'header' => $header,
+            ]);
+        }
+    }
+
+    return $widgets_data;
+}
+
+function apps_scan_widgets()
+{
+    $CI = &get_instance();
+    $CI->load->model('apps_model');
+
+    $widget_path = dirname(__FILE__) . DIRECTORY_SEPARATOR . '../views/widgets';
+    $widgets = directory_map($widget_path, 1);
+
+    $widgets = array_filter($widgets, function ($v) {
+      if(strlen($v) > 7) {
+        return substr($v, 0, 7) === 'widget-';
+      }
+      return false;
+    });
+
+    $widgets_data = [];
+
+    if ($widgets) {
+        
+        $db_widgets = $CI->apps_model->select_widgets_except_names();
+        $db_widgets = array_map(function($widget) {
+            return substr($widget['widget_name'], 7);
+        }, $db_widgets);
+
+        foreach ($widgets as $widget_name) {
+            $widget_name = strtolower(trim($widget_name));
+            
+            foreach (['\\', '/'] as $trim) {
+                $widget_name = rtrim($widget_name, $trim);
+            }
+
+            $name = substr($widget_name, 7);
+            $name = substr($name, 0, stripos($name, '.') - 0);
+
+            $path = $widget_path . DIRECTORY_SEPARATOR . $widget_name;
+
+            $header = apps_get_headers_widget($path);
+
+            array_push($widgets_data, [
+            'name' =>  $name,
+            'file_name' => $widget_name,
+            'path' => $path,
+            'header' => $header,
+            'active' => in_array($name, $db_widgets),
+            ]);
+        }
+    }
+
+    return $widgets_data;
+}
+
+function apps_scan_widgets_with_activation($active)
+{
+    $data = apps_scan_widgets();
+    return array_filter($data, function ($v) use ($active) {
+        return $v['active'] == $active;
+    });
+}
+
+function apps_get_headers_widget($widget_path)
+{
+    $widget_data = read_file($widget_path);
+
+    preg_match('|Widget Name:(.*)$|mi', $widget_data, $name);
+    preg_match('|Description:(.*)$|mi', $widget_data, $description);
+    preg_match('|Category:(.*)$|mi', $widget_data, $category);
+
+    $arr = [];
+
+    if (isset($name[1])) {
+        $arr['name'] = trim($name[1]);
+    }
+
+    if (isset($description[1])) {
+        $arr['description'] = trim($description[1]);
+    }
+
+    if (isset($category[1])) {
+        $arr['category'] = trim($category[1]);
+    }
+
+    return $arr;
+}
+
+/*
+function get_widgest_folder_path(){
+    
+    return APP_MODULES_PATH.APPS_MODULE_NAME.'/views/widgets';
+    
+}
+*/
 
 
 function getYear($pdate) {
@@ -101,8 +358,123 @@ function apps_get_relation_data($type, $rel_id = '', $extra = [])
         $q = $CI->input->post('q');
         $q = trim($q);
     }
-
+    $input = $CI->input->post();
+    log_activity(json_encode($input));
     $data = [];
+    switch ($type) {
+        case 'institution':
+        case 'institutions':
+            $where_clients = ''; 
+            if ($q) {
+                //$where_clients .= '(company LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\' OR CONCAT(firstname, " ", lastname) LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\' OR email LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\') AND ' . db_prefix() . 'clients.active = 1  AND ' . db_prefix() . 'clients.is_institution = 1';
+                $where_clients .= '(company LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\') AND ' . db_prefix() . 'clients.active = 1  AND ' . db_prefix() . 'clients.is_institution = 1';
+            }
+            include_once(APP_MODULES_PATH. 'institutions/models/Institutions_model.php');
+
+            $CI->load->model('institutions_model');
+            $data = $CI->institutions_model->get_select_option($rel_id, $where_clients);
+            // code...
+            break;
+        case 'company':
+        case 'companies':
+            $where_clients = ''; 
+            if ($q) {
+                $where_clients .= '(company LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\' OR CONCAT(firstname, " ", lastname) LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\' OR email LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\') AND ' . db_prefix() . 'clients.active = 1 AND ' . db_prefix() . 'clients.is_company = 1';
+            }
+            include_once(APP_MODULES_PATH. 'companies/models/Companies_model.php');
+            $CI->load->model('companies_model');
+            $data = $CI->companies_model->get($rel_id, $where_clients);
+            // code...
+            break;
+        case 'inspector':
+        case 'inspectors':
+            $institution_id = $CI->input->post('institution_id');
+            $where_clients = ''; 
+            if ($q) {
+                if(is_numeric($institution_id)){
+                    $where_clients .= '(company LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\') AND ' . db_prefix() . 'clients.active = 1  AND ' . db_prefix() . 'clients.is_inspector = 1 AND ' . db_prefix() . 'clients.institution_id = ' .$institution_id;
+                }
+                else{
+                    $where_clients .= '(company LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\') AND ' . db_prefix() . 'clients.active = 1  AND ' . db_prefix() . 'clients.is_inspector = 1';
+                }
+            }
+            include_once(APP_MODULES_PATH. 'inspectors/models/Inspectors_model.php');
+            $CI->load->model('inspectors_model');
+            $data = $CI->inspectors_model->get_select_option($rel_id, $where_clients);
+            // code...
+            break;
+        case 'inspector_staff':
+        case 'inspector_staffs':
+            $inspector_id = $CI->input->post('inspector_id');
+            log_activity('inspector_id ' . $inspector_id);
+            log_activity(json_encode($extra));
+            log_activity(current_url());
+            $where_clients = ''; 
+            if ($q) {
+                if(is_numeric($inspector_id)){
+                    $where_clients .= '(firstname LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\') AND ' . db_prefix() . 'staff.active = 1  AND ' . db_prefix() . 'staff.is_not_staff = 1 AND ' . db_prefix() . 'staff.client_id = ' .$inspector_id;
+                }
+                else{
+                    $where_clients .= '(firstname LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\') AND ' . db_prefix() . 'staff.active = 1  AND ' . db_prefix() . 'staff.is_not_staff = 1';
+                }
+            }
+            include_once(APP_MODULES_PATH. 'inspectors/models/Inspectors_model.php');
+            $CI->load->model('inspectors_model');
+            $data = $CI->inspectors_model->get_inspector_staff_select_option($rel_id, $where_clients);
+            // code...
+            break;
+        case 'surveyor':
+        case 'surveyors':
+            log_activity('11111111');
+            $where_clients = ''; 
+            if ($q) {
+                $where_clients .= '(company LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\' OR CONCAT(firstname, " ", lastname) LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\' OR email LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\') AND ' . db_prefix() . 'clients.active = 1 AND ' . db_prefix() . 'clients.is_surveyor = 1';
+            }
+            include_once(APP_MODULES_PATH. 'surveyors/models/Surveyors_model.php');
+            $CI->load->model('surveyors_model');
+            $data = $CI->surveyors_model->get($rel_id, $where_clients);
+            // code...
+            break;
+        
+        default:
+            // code...
+            break;
+    }
+
+
+    /*
+
+    if ($type == 'company' || $type == 'companies') {
+        $where_clients = ''; 
+        if ($q) {
+            $where_clients .= '(company LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\' OR CONCAT(firstname, " ", lastname) LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\' OR email LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\') AND ' . db_prefix() . 'clients.active = 1 AND ' . db_prefix() . 'clients.is_company = 1';
+        }
+        include_once(APP_MODULES_PATH. 'companies/models/companies_model.php');
+        $CI->load->model('companies_model');
+        $data = $CI->companies_model->get($rel_id, $where_clients);
+    } elseif ($type == 'institution' || $type == 'institutions') {
+    log_activity('$type = 2 ' .$type);
+        $where_clients = ''; 
+        if ($q) {
+            //$where_clients .= '(company LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\' OR CONCAT(firstname, " ", lastname) LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\' OR email LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\') AND ' . db_prefix() . 'clients.active = 1 AND ' . db_prefix() . 'clients.is_company = 1';
+            $where_clients .= '(companys LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\' OR CONCAT(firstname, " ", lastname) LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\' OR email LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\') AND ' . db_prefix() . 'clients.active = 1  AND ' . db_prefix() . 'clients.is_institution = 1';
+        }
+        include_once(APP_MODULES_PATH. 'institutions/models/institutions_model.php');
+        $CI->load->model('institutions_model');
+        $data = $CI->institutions_model->get($rel_id, $where_clients);
+    } elseif ($type == 'inspector' || $type == 'inspectors') {
+    log_activity('$type =3 ' .$type);
+        $where_clients = ''; 
+        if ($q) {
+            //$where_clients .= '(company LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\' OR CONCAT(firstname, " ", lastname) LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\' OR email LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\') AND ' . db_prefix() . 'clients.active = 1 AND ' . db_prefix() . 'clients.is_company = 1';
+            $where_clients .= '(company LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\' OR CONCAT(firstname, " ", lastname) LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\' OR email LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\') AND ' . db_prefix() . 'clients.active = 1  AND ' . db_prefix() . 'clients.is_inspector = 1';
+        }
+        include_once(APP_MODULES_PATH. 'inspectors/models/inspectors_model.php');
+        $CI->load->model('inspectors_model');
+        $data = $CI->inspectors_model->get($rel_id, $where_clients);
+    }
+
+
     if ($type == 'customer' || $type == 'customers') {
         $where_clients = ''; 
         if ($q) {
@@ -110,7 +482,9 @@ function apps_get_relation_data($type, $rel_id = '', $extra = [])
         }
 
         $data = $CI->clients_model->get($rel_id, $where_clients);
-    } elseif ($type == 'contact' || $type == 'contacts') {
+    }
+
+    elseif ($type == 'contact' || $type == 'contacts') {
         if ($rel_id != '') {
             $data = $CI->clients_model->get_contact($rel_id);
         } else {
@@ -225,18 +599,8 @@ function apps_get_relation_data($type, $rel_id = '', $extra = [])
         }
     }
 
-    elseif ($type == 'company' || $type == 'companies') {
-        $where_clients = ''; 
-        if ($q) {
-            $where_clients .= '(company LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\' OR CONCAT(firstname, " ", lastname) LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\' OR email LIKE "%' . $CI->db->escape_like_str($q) . '%" ESCAPE \'!\') AND ' . db_prefix() . 'clients.active = 1';
-        }
-        include_once(APP_MODULES_PATH. 'companies/models/companies_model.php');
-        $CI->load->model('companies_model');
-        $data = $CI->companies_model->get($rel_id, $where_clients);
-    } 
 
-    $data = hooks()->apply_filters('get_relation_data', $data, compact('type', 'rel_id', 'extra'));
-
+    */
     return $data;
 }
 
@@ -250,6 +614,7 @@ function apps_get_relation_data($type, $rel_id = '', $extra = [])
  */
 function apps_get_relation_values($relation, $type)
 {
+
     if ($relation == '') {
         return [
             'name'      => '',
@@ -266,6 +631,61 @@ function apps_get_relation_values($relation, $type)
     $link      = '';
     $subtext   = '';
 
+    if ($type == 'company' || $type == 'companies') {
+        if (is_array($relation)) {
+            $id   = $relation['userid'];
+            $name = $relation['company'];
+        } else {
+            $id   = $relation->userid;
+            $name = $relation->company;
+        }
+        $link = admin_url('companies/company/' . $id);
+    }  
+    elseif ($type == 'institution' || $type == 'institutions') {
+        if (is_array($relation)) {
+            $id   = $relation['userid'];
+            $name = $relation['company'];
+        } else {
+            $id   = $relation->userid;
+            $name = $relation->company;
+        }
+
+        $link = admin_url('institutions/institution/' . $id);
+    }
+    elseif ($type == 'inspector' || $type == 'inspectors') {
+        if (is_array($relation)) {
+            $id   = $relation['userid'];
+            $name = $relation['company'];
+        } else {
+            $id   = $relation->userid;
+            $name = $relation->company;
+        }
+
+        $link = admin_url('inspectors/inspector/' . $id);
+    }
+    elseif ($type == 'inspector_staff' || $type == 'inspector_staffs') {
+        if (is_array($relation)) {
+            $id   = $relation['staffid'];
+            $name = $relation['firstname'];
+        } else {
+            $id   = $relation->staffid;
+            $name = $relation->firstname;
+        }
+
+        $link = admin_url('pengguna/pengguna/' . $id);
+    }
+    elseif ($type == 'surveyor' || $type == 'surveyors') {
+        if (is_array($relation)) {
+            $id   = $relation['userid'];
+            $name = $relation['company'];
+        } else {
+            $id   = $relation->userid;
+            $name = $relation->company;
+        }
+
+        $link = admin_url('surveyors/surveyor/' . $id);
+    }
+    /*
     if ($type == 'customer' || $type == 'customers') {
         if (is_array($relation)) {
             $id   = $relation['userid'];
@@ -275,7 +695,9 @@ function apps_get_relation_values($relation, $type)
             $name = $relation->company;
         }
         $link = admin_url('clients/client/' . $id);
-    } elseif ($type == 'contact' || $type == 'contacts') {
+    }
+
+     elseif ($type == 'contact' || $type == 'contacts') {
         if (is_array($relation)) {
             $userid = isset($relation['userid']) ? $relation['userid'] : $relation['relid'];
             $id     = $relation['id'];
@@ -417,31 +839,25 @@ function apps_get_relation_values($relation, $type)
             $clientId = $relation->clientid;
         }
 
+
         $name = '#' . $id . ' - ' . $name . ' - ' . get_company_name($clientId);
 
         $link = admin_url('projects/view/' . $id);
     }
+        */ 
 
-    elseif ($type == 'company' || $type == 'companies') {
-        if (is_array($relation)) {
-            $id   = $relation['userid'];
-            $name = $relation['company'];
-        } else {
-            $id   = $relation->userid;
-            $name = $relation->company;
-        }
-        $link = admin_url('companies/company/' . $id);
-    }
 
-    return hooks()->apply_filters('relation_values', [
+    $relation_values = [
         'id'        => $id,
         'name'      => $name,
         'link'      => $link,
         'addedfrom' => $addedfrom,
         'subtext'   => $subtext,
         'type'      => $type,
-        ]);
+        ];
+    return $relation_values;
 }
+
 
 /**
  * Function used to render <option> for relation
@@ -455,35 +871,53 @@ function apps_init_relation_options($data, $type, $rel_id = '')
 {
     $_data = [];
 
-    $has_permission_projects_view  = has_permission('projects', '', 'view');
-    $has_permission_customers_view = has_permission('customers', '', 'view');
-    $has_permission_contracts_view = has_permission('contracts', '', 'view');
-    $has_permission_invoices_view  = has_permission('invoices', '', 'view');
-    $has_permission_estimates_view = has_permission('estimates', '', 'view');
-    $has_permission_expenses_view  = has_permission('expenses', '', 'view');
-    $has_permission_proposals_view = has_permission('proposals', '', 'view');
-
-
     $has_permission_companies_view = has_permission('companies', '', 'view');
     $has_permission_surveyors_view = has_permission('surveyors', '', 'view');
     $has_permission_inspectors_view = has_permission('inspectors', '', 'view');
     $has_permission_institutions_view = has_permission('institutions', '', 'view');
     $has_permission_goverments_view = has_permission('goverments', '', 'view');
 
-
     $is_admin                      = is_admin();
     $CI                            = & get_instance();
-    $CI->load->model('projects_model');
 
     foreach ($data as $relation) {
-        $relation_values = get_relation_values($relation, $type);
+        $relation_values = apps_get_relation_values($relation, $type);
+        
+        if ($type == 'company' || $type == 'companies' ) {
+            if (!$has_permission_companies_view && $rel_id != $relation_values['id'] && $relation_values['addedfrom'] != get_staff_user_id()) {
+                continue;
+            }
+        } 
+        elseif ($type == 'institution' || $type == 'institutions' ) {
+            if (!$has_permission_institutions_view && $rel_id != $relation_values['id'] && $relation_values['addedfrom'] != get_staff_user_id()) {
+                continue;
+            }
+        }
+        elseif ($type == 'inspector' || $type == 'inspectors' ) {
+            if (!$has_permission_inspectors_view && $rel_id != $relation_values['id'] && $relation_values['addedfrom'] != get_staff_user_id()) {
+                continue;
+            }
+        }
+        elseif ($type == 'inspector_staff' || $type == 'inspector_staffs' ) {
+            if (!$has_permission_inspectors_view && $rel_id != $relation_values['id'] && $relation_values['addedfrom'] != get_staff_user_id()) {
+                continue;
+            }
+        }
+        elseif ($type == 'surveyor' || $type == 'surveyors' ) {
+            if (!$has_permission_surveyors_view && $rel_id != $relation_values['id'] && $relation_values['addedfrom'] != get_staff_user_id()) {
+                continue;
+            }
+        }
+        /*
         if ($type == 'project') {
             if (!$has_permission_projects_view) {
                 if (!$CI->projects_model->is_member($relation_values['id']) && $rel_id != $relation_values['id']) {
                     continue;
                 }
             }
-        } elseif ($type == 'lead') {
+        } 
+
+        elseif ($type == 'lead') {
             if (!has_permission('leads', '', 'view')) {
                 if ($relation['assigned'] != get_staff_user_id() && $relation['addedfrom'] != get_staff_user_id() && $relation['is_public'] != 1 && $rel_id != $relation_values['id']) {
                     continue;
@@ -518,17 +952,7 @@ function apps_init_relation_options($data, $type, $rel_id = '')
                 continue;
             }
         }
-
-
-        elseif ($type == 'company' || $type == 'companies' ) {
-            if (!$has_permission_companies_view && !have_assigned_customers() && $rel_id != $relation_values['id']) {
-                continue;
-            } elseif (have_assigned_customers() && $rel_id != $relation_values['id'] && !$has_permission_companies_view) {
-                if (!is_customer_admin($relation_values['id'])) {
-                    continue;
-                }
-            }
-        }
+        */
 
         $_data[] = $relation_values;
         //  echo '<option value="' . $relation_values['id'] . '"' . $selected . '>' . $relation_values['name'] . '</option>';
@@ -537,4 +961,58 @@ function apps_init_relation_options($data, $type, $rel_id = '')
     $_data = hooks()->apply_filters('init_relation_options', $_data, compact('data', 'type', 'rel_id'));
 
     return $_data;
+}
+
+
+
+/**
+ * Helper function to replace info format merge fields
+ * Info format = Address formats for customers, proposals, company information
+ * @param  string $mergeCode merge field to check
+ * @param  mixed $val       value to replace
+ * @param  string $txt       from format
+ * @return string
+ */
+function _apps_format_replace($mergeCode, $val, $txt)
+{
+    $tmpVal = '';
+
+    if($val <> null || $val <> ''){
+        $tmpVal = strip_tags($val);
+    }
+
+    if ($tmpVal != '') {
+        $result = preg_replace('/({' . $mergeCode . '})/i', $val, $txt);
+    } else {
+        $re     = '/\s{0,}{' . $mergeCode . '}(<br ?\/?>(\n))?/i';
+        $result = preg_replace($re, '', $txt);
+    }
+
+    return $result;
+}
+
+
+function get_client_company_by_clientid($id){
+    $CI = &get_instance();
+
+    $CI->load->model('clients_model');
+    $client = $CI->clients_model->get($id);
+    return $client->company;
+}
+
+
+function get_client_company_address($id){
+    $CI = &get_instance();
+    $CI->db->select('billing_street, billing_city, billing_state','billing_zip');
+    $CI->db->from(db_prefix() . 'clients');
+    $CI->db->where('userid', $id);
+    $company = $CI->db->get()->row();
+
+    $address  = '';
+    $address .= isset($company->billing_street) ? $company->billing_street .' ' : '' ;
+    $address .= isset($company->billing_city) ? $company->billing_city .' ' : '' ;
+    $address .= isset($company->billing_state) ? $company->billing_state .' ' : '' ;
+    $address .= isset($company->billing_zip) ? $company->billing_zip : '' ;
+
+    return $address;
 }
